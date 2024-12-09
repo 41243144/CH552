@@ -1,76 +1,25 @@
-// #include <WS2812.h>
-
-// #define NUM_LEDS 8
-// #define COLOR_PER_LEDS 3
-// #define NUM_BYTES (NUM_LEDS * COLOR_PER_LEDS)
-
-// #if NUM_BYTES > 255
-// #error "NUM_BYTES can not be larger than 255."
-// #endif
-
-// #define lightStrip 31 // WS2812 資料腳位
-
-// __xdata uint8_t ledData[NUM_BYTES]; // 燈條資料緩衝區
-
-// unsigned int avgRed = 0;
-// unsigned int avgGreen = 0;
-// unsigned int avgBlue = 0;
-
-// // UART 初始化
-// void UART_Init(void) {
-//     SM0 = 0;  // UART 模式 1（8 位數據）
-//     SM1 = 1;
-//     TMOD |= 0x20; // 設置定時器 1 為 8 位自動重載模式
-//     TH1 = 0xFD;   // 設定波特率為 9600 (12 MHz 晶振)
-//     TR1 = 1;      // 啟動定時器 1
-//     REN = 1;      // 啟用接收功能
-//     TI = 1;       // 設置發送準備完成標誌
-// }
-
-// // UART 接收一個字節
-// char UART_ReceiveChar(void) {
-//     while (!RI);  // 等待接收完成
-//     RI = 0;       // 清除接收標誌
-//     return SBUF;  // 返回接收到的字節
-// }
-
-// // UART 接收 RGB 資料
-// void UART_ReceiveRGB(void) {
-//     avgRed = UART_ReceiveChar();    // 接收 Red 值
-//     avgGreen = UART_ReceiveChar();  // 接收 Green 值
-//     avgBlue = UART_ReceiveChar();   // 接收 Blue 值
-// }
-
-// // 初始化腳位
-// void pinInit() {
-//     pinMode(lightStrip, OUTPUT); // 設置燈條腳位為輸出
-// }
-
-// // 主程式初始化
-// void setup() {
-//     pinInit();      // 初始化腳位
-//     UART_Init();    // 初始化 UART
-// }
-
-// // 主程式循環
-// void loop() {
-//     UART_ReceiveRGB(); // 接收 UART 傳輸的 RGB 資料
-
-//     // 更新燈條顏色
-//     for (uint8_t i = 0; i < NUM_LEDS; i++) {
-//         set_pixel_for_GRB_LED(ledData, i, avgRed, avgGreen, avgBlue);
-//     }
-//     neopixel_show_P3_1(ledData, NUM_BYTES); // 更新 WS2812 燈條
-
-//     delay(100); // 短暫延遲，防止過快更新
-// }
-
 #include <Arduino.h>
+#include <WS2812.h>
+
+/*-------------------------彩條燈定義-------------------------*/
+#define NUM_LEDS 8
+#define COLOR_PER_LEDS 3
+#define NUM_BYTES (NUM_LEDS * COLOR_PER_LEDS)
+
+#if NUM_BYTES > 255
+#error "NUM_BYTES can not be larger than 255."
+#endif
+
+#define lightStrip 31 // WS2812 資料腳位
+
+__xdata uint8_t ledData[NUM_BYTES]; // 燈條資料緩衝區
 
 #define SDA_PIN 32 // 定義 SDA 為 P3.2
 #define SCL_PIN 14  // 定義 SCL 為 P1.4
 
 #define I2C_DELAY_US 5  // I²C 時鐘延遲 (調整延遲來控制速率)
+
+/*-------------------------語音定義-------------------------*/
 
 // 語音設備 I²C 位址
 #define VOICE_I2C_ADDR 0x0B
@@ -79,6 +28,21 @@
 const unit_t STUDY_COMMAND = 0x50;
 const unit_t INIT_COMMAND = 0x60;
 
+
+/*-------------------------彩條燈函式區-------------------------*/
+// 初始化彩條燈腳位
+void pinInit() {
+    pinMode(lightStrip, OUTPUT); // 設置燈條腳位為輸出
+}
+
+void update_GRB_LED(){
+    for (uint8_t i = 0; i < NUM_LEDS; i++) {
+      set_pixel_for_GRB_LED(ledData, i, R, G, B);
+    }
+    neopixel_show_P3_1(ledData, NUM_BYTES); // 更新 WS2812 燈條
+}
+
+/*-------------------------I²C函式區-------------------------*/
 // 初始化 I²C 線路
 void i2c_init() {
   pinMode(SDA_PIN, OUTPUT);
@@ -188,9 +152,26 @@ bool read_voice_data(uint8_t *buffer, uint8_t len) {
   return i2c_read(VOICE_I2C_ADDR, buffer, len);  // 從語音設備讀取資料
 }
 
-void setup() {
+/*-------------------------語音訊息函式區-------------------------*/
+void data_process(uint8_t voice_data){
+  if(voice_data == 0x50){
+    USBSerial_print("進入學習模式");
+    delay(2000);
+    i2c_write(VOICE_I2C_ADDR, &STUDY_COMMAND, 1);
+    return;
+  }
+  unit_t R = 0, G = 0, B = 0;
+  // 彩條燈顯示紅色
+  else if(voice_data == 0x51){
+    R = 255;
+  }
+  else if(voice_data == )
+}
 
+void setup() {
+  // 初始化I²C
   i2c_init();
+  pinInit();
   //延遲1秒
   delay(1000);
 }
@@ -211,7 +192,7 @@ void loop() {
       sleep = false;
       // 進入學習模式
       delay(2000);
-      i2c_write(VOICE_I2C_ADDR, &data, 1);
+      i2c_write(VOICE_I2C_ADDR, &STUDY_COMMAND, 1);
 
       USBSerial_print("Entering study mode");
   } 
@@ -222,3 +203,6 @@ void loop() {
 
   delay(500);  // 等待 500 msec
 }
+
+// 學習 紅色 綠色 藍色 彩色 呼吸燈
+
