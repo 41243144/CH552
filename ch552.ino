@@ -14,19 +14,35 @@
 
 __xdata uint8_t ledData[NUM_BYTES]; // 燈條資料緩衝區
 
+const int MODE_LENGTH = 6;
+
+/*  command
+    0: 白色  
+    1: 紅色
+    2: 綠色
+    3: 藍色
+    4: 彩色
+    5: 隨機
+*/
+
+int command = 0;
+bool power = false;
+bool rainbow_init = false;
+
+
+/*-------------------------語音定義-------------------------*/
+
 #define SDA_PIN 32 // 定義 SDA 為 P3.2
 #define SCL_PIN 14  // 定義 SCL 為 P1.4
 
 #define I2C_DELAY_US 5  // I²C 時鐘延遲 (調整延遲來控制速率)
 
-/*-------------------------語音定義-------------------------*/
-
 // 語音設備 I²C 位址
 #define VOICE_I2C_ADDR 0x0B
 
 // 學習指令及恢復出場指令
-const unit_t STUDY_COMMAND = 0x50;
-const unit_t INIT_COMMAND = 0x60;
+const uint8_t  STUDY_COMMAND = 0x50;
+const uint8_t  INIT_COMMAND  = 0x60;
 
 
 /*-------------------------彩條燈函式區-------------------------*/
@@ -35,13 +51,38 @@ void pinInit() {
     pinMode(lightStrip, OUTPUT); // 設置燈條腳位為輸出
 }
 
-void update_GRB_LED(){
+void update_GRB_LED(int R, int G, int B){
     for (uint8_t i = 0; i < NUM_LEDS; i++) {
       set_pixel_for_GRB_LED(ledData, i, R, G, B);
     }
     neopixel_show_P3_1(ledData, NUM_BYTES); // 更新 WS2812 燈條
 }
 
+
+void initializeRainbow(__xdata uint8_t *ledData) {
+    for (uint8_t i = 0; i < NUM_LEDS; i++) {
+        uint8_t r = (i * 85) % 256;  // 紅色逐漸增強
+        uint8_t g = ((i * 85) + 85) % 256; // 綠色逐漸增強
+        uint8_t b = ((i * 85) + 170) % 256; // 藍色逐漸增強
+        set_pixel_for_GRB_LED(ledData, i, r, g, b);
+    }
+}
+
+void shiftRainbow(__xdata uint8_t *ledData) {
+    uint8_t lastR = ledData[(NUM_LEDS - 1) * COLOR_PER_LEDS];
+    uint8_t lastG = ledData[(NUM_LEDS - 1) * COLOR_PER_LEDS + 1];
+    uint8_t lastB = ledData[(NUM_LEDS - 1) * COLOR_PER_LEDS + 2];
+
+    for (int8_t i = NUM_LEDS - 1; i > 0; i--) {
+        ledData[i * COLOR_PER_LEDS] = ledData[(i - 1) * COLOR_PER_LEDS];
+        ledData[i * COLOR_PER_LEDS + 1] = ledData[(i - 1) * COLOR_PER_LEDS + 1];
+        ledData[i * COLOR_PER_LEDS + 2] = ledData[(i - 1) * COLOR_PER_LEDS + 2];
+    }
+
+    ledData[0] = lastR;
+    ledData[1] = lastG;
+    ledData[2] = lastB;
+}
 /*-------------------------I²C函式區-------------------------*/
 // 初始化 I²C 線路
 void i2c_init() {
@@ -153,19 +194,22 @@ bool read_voice_data(uint8_t *buffer, uint8_t len) {
 }
 
 /*-------------------------語音訊息函式區-------------------------*/
-void data_process(uint8_t voice_data){
-  if(voice_data == 0x50){
-    USBSerial_print("進入學習模式");
-    delay(2000);
-    i2c_write(VOICE_I2C_ADDR, &STUDY_COMMAND, 1);
-    return;
+void data_process(const uint8_t data) {
+  // 開啟燈條
+  if (data == 0x50) {
+    power = true;
   }
-  unit_t R = 0, G = 0, B = 0;
-  // 彩條燈顯示紅色
-  else if(voice_data == 0x51){
-    R = 255;
+
+  // 關閉燈條
+  else if (data == 0x51) {
+    rainbow_init = false;
+    power = false;
   }
-  else if(voice_data == )
+
+  // 切換模式
+  else if (data == 0x52) {
+    command = (command + 1) % MODE_LENGTH;
+  }
 }
 
 void setup() {
@@ -173,7 +217,8 @@ void setup() {
   i2c_init();
   pinInit();
   //延遲1秒
-  delay(1000);
+  delay(5000);
+  //i2c_write(VOICE_I2C_ADDR, &STUDY_COMMAND, 1);
 }
 
 void loop() {
@@ -186,23 +231,49 @@ void loop() {
   } else {
     USBSerial_print("Failed to read voice data\n");
   }
+  if(voice_data[0] != 0x00){
+    data_process(voice_data[0]);
+  }
 
-  // 若喚醒設備，進入學習模式
-  if (voice_data[0] == 0x01) {
-      sleep = false;
-      // 進入學習模式
-      delay(2000);
-      i2c_write(VOICE_I2C_ADDR, &STUDY_COMMAND, 1);
-
-      USBSerial_print("Entering study mode");
-  } 
-  else {
-      USBSerial_print("Unexpected response: ");
-      USBSerial_print(voice_data[0], HEX);
+  if(power == true){
+    // 白燈
+    if(command == 0){
+      update_GRB_LED(255, 255, 255);
+    }
+    // 紅燈
+    else if(command == 1){
+      update_GRB_LED(255, 0, 0);
+    }
+    // 綠燈
+    else if(command == 2){
+      update_GRB_LED(0, 255, 0);
+    }
+    // 藍燈
+    else if(command == 3){
+      update_GRB_LED(0, 0, 255);
+    }
+    // 彩色
+    else if(command == 4){
+      if(!rainbow_init){
+        rainbow_init = true;
+        initializeRainbow(ledData);
+      }else{
+      shiftRainbow(ledData);
+      neopixel_show_P3_1(ledData, NUM_BYTES);
+      }
+    }
+    else if(command == 5){
+      rainbow_init = false;
+      int randomR = random(255); // 生成 0 到 255 之間的隨機紅色值
+      int randomG = random(255); // 生成 0 到 255 之間的隨機綠色值
+      int randomB = random(255); // 生成 0 到 255 之間的隨機藍色值
+      // 更新燈條顏色
+      update_GRB_LED(randomR, randomG, randomB);
+    }
+  }
+  else{
+    update_GRB_LED(0, 0, 0);
   }
 
   delay(500);  // 等待 500 msec
 }
-
-// 學習 紅色 綠色 藍色 彩色 呼吸燈
-
